@@ -12,6 +12,22 @@ app.use(express.json());
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster0.3hxoz.mongodb.net/myFirstDatabase?retryWrites=true&w=majority`;
 const client = new MongoClient(uri, { useNewUrlParser: true, useUnifiedTopology: true, serverApi: ServerApiVersion.v1 });
+
+function verifyJWT(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if(!authHeader) {
+    return res.status(401).send({message: '401 Unauthorized access'});
+  }
+  const token = authHeader.split(' ')[1];
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, function(err, decoded) {
+    if(err) {
+      return res.status(403).send({message: '403 Forbidden access'});
+    }
+    req.decoded = decoded;
+    next();
+  })
+}
+
 async function run() {
   try{
     await client.connect();
@@ -19,6 +35,15 @@ async function run() {
     const servicesCollection = client.db('doctorsPortal').collection('services');
     const bookingCollection = client.db('doctorsPortal').collection('bookings');
     const userCollection = client.db('doctorsPortal').collection('users');
+
+    // Make admin
+    app.put('/user/admin/:email', verifyJWT, async (req, res) => {
+      const email = req.params.email;
+      const filter = {email: email};
+      const updateDoc = {$set: {role: 'admin'}};
+      const result = await userCollection.updateOne(filter, updateDoc);
+      res.send(result,);
+    });
 
     app.put('/user/:email', async (req, res) => {
       const email = req.params.email;
@@ -29,7 +54,7 @@ async function run() {
       const result = await userCollection.updateOne(filter, updateDoc, options);
       const token = jwt.sign({email: email}, process.env.ACCESS_TOKEN_SECRET, {expiresIn: '1h'})
       res.send({result, token});
-    })
+    });
 
     // Get all appointments
     app.get('/service', async(req, res) => {
@@ -39,8 +64,14 @@ async function run() {
       res.send(services);
     });
 
+    // Get all users
+    app.get('/user', verifyJWT, async (req, res) => {
+      const users = await userCollection.find().toArray();
+      res.send(users);
+    })
+
     // Get avaiable booking
-    app.get('/available', async (req, res) => {
+    app.get('/available',  async (req, res) => {
       const date = req.query.date;
       const services = await servicesCollection.find().toArray();
       // Get all booking of the day
@@ -56,18 +87,23 @@ async function run() {
       res.send(services);
     })
 
-    app.get('/appointment', async (req, res) => {
+    app.get('/appointment', verifyJWT, async (req, res) => {
       const patient = req.query.patient;
-      const query = {patientEmail: patient};
-      const bookings = await bookingCollection.find(query).toArray();
-      res.send(bookings);
+      const decodedEmail = req.decoded.email;
+      if(patient === decodedEmail) {
+        const query = {patientEmail: patient};
+        const bookings = await bookingCollection.find(query).toArray();
+        return res.send(bookings);
+      }
+      else {
+        return res.status(403).send({message: '403 Forbidden access'});
+      }
     })
 
     // Book a appointment
     app.post('/booking', async (req, res) => {
       const booking = req.body;
-      const query = {date: booking.date, patient: booking.patient, slot: booking.slot}
-      console.log(query);
+      const query = {date: booking.date, patient: booking.patientName, slot: booking.slot}
       const exists = await bookingCollection.findOne(query);
       if (exists) {
         return res.send({success: false, booking: exists})
