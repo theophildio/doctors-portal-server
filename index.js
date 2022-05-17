@@ -3,6 +3,7 @@ const cors = require('cors');
 const { MongoClient, ServerApiVersion } = require('mongodb');
 const { json } = require('express/lib/response');
 const jwt = require('jsonwebtoken');
+const res = require('express/lib/response');
 require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 5000;
@@ -39,10 +40,17 @@ async function run() {
     // Make admin
     app.put('/user/admin/:email', verifyJWT, async (req, res) => {
       const email = req.params.email;
-      const filter = {email: email};
-      const updateDoc = {$set: {role: 'admin'}};
-      const result = await userCollection.updateOne(filter, updateDoc);
-      res.send(result,);
+      const requestor = req.decoded.email;
+      const requestorAccount = await userCollection.findOne({email: requestor});
+      if (requestorAccount.role === 'admin') {
+        const filter = {email: email};
+        const updateDoc = {$set: {role: 'admin'}};
+        const result = await userCollection.updateOne(filter, updateDoc);
+        res.send(result,);
+      }
+      else {
+        res.status(403).send({message: '403 forbidden access'});
+      }
     });
 
     app.put('/user/:email', async (req, res) => {
@@ -68,6 +76,14 @@ async function run() {
     app.get('/user', verifyJWT, async (req, res) => {
       const users = await userCollection.find().toArray();
       res.send(users);
+    })
+
+    // Admin 
+    app.get('/admin/:email', verifyJWT, async (req, res) => {
+      const email = req.params.email;
+      const user = await userCollection.findOne({email: email});
+      const isAdmin = user.role === 'admin';
+      res.send({admin: isAdmin});
     })
 
     // Get avaiable booking
