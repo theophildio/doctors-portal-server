@@ -26,7 +26,7 @@ function verifyJWT(req, res, next) {
     }
     req.decoded = decoded;
     next();
-  })
+  });
 }
 
 async function run() {
@@ -36,22 +36,26 @@ async function run() {
     const servicesCollection = client.db('doctorsPortal').collection('services');
     const bookingCollection = client.db('doctorsPortal').collection('bookings');
     const userCollection = client.db('doctorsPortal').collection('users');
+    const doctorCollection = client.db('doctorsPortal').collection('doctors');
 
     // Make admin
     app.put('/user/admin/:email', verifyJWT, async (req, res) => {
       const email = req.params.email;
-      const requestor = req.decoded.email;
-      const requestorAccount = await userCollection.findOne({email: requestor});
-      if (requestorAccount.role === 'admin') {
-        const filter = {email: email};
-        const updateDoc = {$set: {role: 'admin'}};
+      const requester = req.decoded.email;
+      const requesterAccount = await userCollection.findOne({ email: requester });
+      if (requesterAccount.role === 'admin') {
+        const filter = { email: email };
+        const updateDoc = {
+          $set: { role: 'admin' },
+        };
         const result = await userCollection.updateOne(filter, updateDoc);
-        res.send(result,);
+        res.send(result);
       }
-      else {
-        res.status(403).send({message: '403 forbidden access'});
+      else{
+        res.status(403).send({message: 'forbidden'});
       }
-    });
+
+    })
 
     app.put('/user/:email', async (req, res) => {
       const email = req.params.email;
@@ -67,7 +71,7 @@ async function run() {
     // Get all appointments
     app.get('/service', async(req, res) => {
       const query  = {};
-      const cursor = servicesCollection.find(query);
+      const cursor = servicesCollection.find(query).project({name: 1});
       const services = await cursor.toArray();
       res.send(services);
     });
@@ -119,13 +123,20 @@ async function run() {
     // Book a appointment
     app.post('/booking', async (req, res) => {
       const booking = req.body;
-      const query = {date: booking.date, patient: booking.patientName, slot: booking.slot}
+      const query = {treatment: booking.treatment, date: booking.date, patientEmail: booking.patientEmail, slot: booking.slot}
       const exists = await bookingCollection.findOne(query);
       if (exists) {
         return res.send({success: false, booking: exists})
       }
       const result = await bookingCollection.insertOne(booking);
       return res.send({success: true, result});
+    });
+
+    // Add Doctor
+    app.post('/doctor', async(req, res) => {
+      const doctor = req.body;
+      const result = await doctorCollection.insertOne(doctor);
+      res.send(result);
     })
   }
   finally{
