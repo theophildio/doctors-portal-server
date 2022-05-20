@@ -7,6 +7,8 @@ const res = require('express/lib/response');
 require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 5000;
+var nodemailer = require('nodemailer');
+var sgTransport = require('nodemailer-sendgrid-transport');
 
 app.use(cors());
 app.use(express.json());
@@ -29,6 +31,45 @@ function verifyJWT(req, res, next) {
   });
 }
 
+var senderOptions = {
+  auth: {
+    api_key: process.env.EMAIL_SENDER_KEY
+  }
+}
+
+var emailClient = nodemailer.createTransport(sgTransport(senderOptions));
+
+function sendAppointmentEmail (booking) {
+  const {patientName, patientEmail, treatment, date, slot} = booking;
+  var email = {
+    from: process.env.EMAIL_SENDER,
+    to: patientEmail,
+    subject: `Appointment confirmatin for ${treatment} on ${date} at ${slot}`,
+    text: `Your appointment confirmatin for ${treatment} on ${date} at ${slot}`,
+    html: `
+      <div>
+      <p> Hello ${patientName}, </p>
+      <h3>Your Appointment for ${treatment} is confirmed</h3>
+      <p>Looking forward to seeing you on ${date} at ${slot}.</p>
+      
+      <h3>Our Address</h3>
+      <p>Nodda, Dhaka</p>
+      <p>Bangladesh</p>
+      <a href="https://codertheo.com">unsubscribe</a>
+     </div>
+    `
+  };
+
+  emailClient.sendMail(email, function(err, info){
+    if (err ){
+      console.log(err);
+    }
+    else {
+      console.log('Message sent: ', info);
+    }
+  });
+}
+
 async function run() {
   try{
     await client.connect();
@@ -38,35 +79,16 @@ async function run() {
     const userCollection = client.db('doctorsPortal').collection('users');
     const doctorCollection = client.db('doctorsPortal').collection('doctors');
 
-    // Make admin
-    app.put('/user/admin/:email', verifyJWT, async (req, res) => {
-      const email = req.params.email;
+    const verifyAdmin = async (req, res, next) => {
       const requester = req.decoded.email;
       const requesterAccount = await userCollection.findOne({ email: requester });
       if (requesterAccount.role === 'admin') {
-        const filter = { email: email };
-        const updateDoc = {
-          $set: { role: 'admin' },
-        };
-        const result = await userCollection.updateOne(filter, updateDoc);
-        res.send(result);
+        next();
       }
       else{
         res.status(403).send({message: 'forbidden'});
       }
-
-    })
-
-    app.put('/user/:email', async (req, res) => {
-      const email = req.params.email;
-      const user = req.body;
-      const filter = {email: email};
-      const options = {upsert: true};
-      const updateDoc = {$set: user};
-      const result = await userCollection.updateOne(filter, updateDoc, options);
-      const token = jwt.sign({email: email}, process.env.ACCESS_TOKEN_SECRET, {expiresIn: '1h'})
-      res.send({result, token});
-    });
+    }
 
     // Get all appointments
     app.get('/service', async(req, res) => {
@@ -89,6 +111,28 @@ async function run() {
       const isAdmin = user.role === 'admin';
       res.send({admin: isAdmin});
     })
+
+    // Make admin
+    app.put('/user/admin/:email', verifyJWT, verifyAdmin, async (req, res) => {
+      const email = req.params.email;
+        const filter = { email: email };
+        const updateDoc = {
+          $set: { role: 'admin' },
+        };
+        const result = await userCollection.updateOne(filter, updateDoc);
+        res.send(result);
+    })
+
+    app.put('/user/:email', async (req, res) => {
+      const email = req.params.email;
+      const user = req.body;
+      const filter = {email: email};
+      const options = {upsert: true};
+      const updateDoc = {$set: user};
+      const result = await userCollection.updateOne(filter, updateDoc, options);
+      const token = jwt.sign({email: email}, process.env.ACCESS_TOKEN_SECRET, {expiresIn: '1h'})
+      res.send({result, token});
+    });
 
     // Get avaiable booking
     app.get('/available',  async (req, res) => {
@@ -129,13 +173,26 @@ async function run() {
         return res.send({success: false, booking: exists})
       }
       const result = await bookingCollection.insertOne(booking);
+      sendAppointmentEmail(booking);
       return res.send({success: true, result});
     });
+
+    app.get('/doctor', async (req, res) => {
+      const doctors = await doctorCollection.find().toArray();
+      res.send(doctors);
+    })
 
     // Add Doctor
     app.post('/doctor', async(req, res) => {
       const doctor = req.body;
       const result = await doctorCollection.insertOne(doctor);
+      res.send(result);
+    });
+
+    app.delete('/doctor/:email', async(req, res) => {
+      const email = req.params.email;
+      const filter = {email: email}
+      const result = await doctorCollection.deleteOne(filter);
       res.send(result);
     })
   }
