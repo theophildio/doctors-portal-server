@@ -9,6 +9,7 @@ const app = express();
 const port = process.env.PORT || 5000;
 var nodemailer = require('nodemailer');
 var sgTransport = require('nodemailer-sendgrid-transport');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 app.use(cors());
 app.use(express.json());
@@ -89,6 +90,19 @@ async function run() {
         res.status(403).send({message: 'forbidden'});
       }
     }
+
+    // Payment by stripe
+    app.post('/create-payment-intent', verifyJWT, async (req, res) => {
+      const service = req.body;
+      const fee = service.fee;
+      const amount = fee*100;
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: 'usd',
+        payment_method_types: ['card']
+      });
+      res.send({clientSecret: paymentIntent.client_secret});
+    })
 
     // Get all appointments
     app.get('/service', async(req, res) => {
