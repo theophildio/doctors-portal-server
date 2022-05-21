@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId, ObjectID } = require('mongodb');
 const { json } = require('express/lib/response');
 const jwt = require('jsonwebtoken');
 const res = require('express/lib/response');
@@ -50,7 +50,39 @@ function sendAppointmentEmail (booking) {
     html: `
       <div>
       <p> Hello ${patientName}, </p>
-      <h3>Your Appointment for ${treatment} is confirmed</h3>
+      <h3>Your Appointment for ${treatment} is pending. Please make a payment to confirm appointment.</h3>
+      <p>Looking forward to seeing you on ${date} at ${slot}.</p>
+      
+      <h3>Our Address</h3>
+      <p>Nodda, Dhaka</p>
+      <p>Bangladesh</p>
+      <a href="https://codertheo.com">unsubscribe</a>
+     </div>
+    `
+  };
+
+  emailClient.sendMail(email, function(err, info){
+    if (err ){
+      console.log(err);
+    }
+    else {
+      console.log('Message sent: ', info);
+    }
+  });
+}
+
+// Payment confirmation
+function sendPaymentConfirmationEmail (booking) {
+  const {patientName, patientEmail, treatment, date, slot} = booking;
+  var email = {
+    from: process.env.EMAIL_SENDER,
+    to: patientEmail,
+    subject: `Received payment for ${treatment} on ${date} at ${slot}`,
+    text: `Your payment confirmatin for ${treatment} on ${date} at ${slot}`,
+    html: `
+      <div>
+      <p> Hello ${patientName}, </p>
+      <h3>Thank you for your payment. Appointment for ${treatment} is confirmed.</h3>
       <p>Looking forward to seeing you on ${date} at ${slot}.</p>
       
       <h3>Our Address</h3>
@@ -79,6 +111,7 @@ async function run() {
     const bookingCollection = client.db('doctorsPortal').collection('bookings');
     const userCollection = client.db('doctorsPortal').collection('users');
     const doctorCollection = client.db('doctorsPortal').collection('doctors');
+    const paymentCollection = client.db('doctorsPortal').collection('payments');
 
     const verifyAdmin = async (req, res, next) => {
       const requester = req.decoded.email;
@@ -144,7 +177,7 @@ async function run() {
       const options = {upsert: true};
       const updateDoc = {$set: user};
       const result = await userCollection.updateOne(filter, updateDoc, options);
-      const token = jwt.sign({email: email}, process.env.ACCESS_TOKEN_SECRET, {expiresIn: '1h'})
+      const token = jwt.sign({email: email}, process.env.ACCESS_TOKEN_SECRET, {expiresIn: '5h'})
       res.send({result, token});
     });
 
@@ -199,10 +232,26 @@ async function run() {
       return res.send({success: true, result});
     });
 
+    app.patch('/booking/:id', verifyJWT, async(req, res) => {
+      const id = req.params.id;
+      const payment = req.body;
+      const filter = {_id: ObjectId(id)};
+      const updatedDoc = {
+        $set: {
+          paid: true,
+          transactionId: payment.transactionId
+        }
+      }
+
+      const result = await paymentCollection.insertOne(payment);
+      const updatedBooking = await bookingCollection.updateOne(filter, updatedDoc);
+      res.send(updatedDoc);
+    })    
+
     app.get('/doctor', verifyJWT, verifyAdmin, async (req, res) => {
       const doctors = await doctorCollection.find().toArray();
       res.send(doctors);
-    })
+    });
 
     // Add Doctor
     app.post('/doctor', verifyJWT, verifyAdmin, async(req, res) => {
