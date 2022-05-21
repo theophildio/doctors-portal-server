@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 const { json } = require('express/lib/response');
 const jwt = require('jsonwebtoken');
 const res = require('express/lib/response');
@@ -162,6 +162,14 @@ async function run() {
       else {
         return res.status(403).send({message: '403 Forbidden access'});
       }
+    });
+
+    // Payment
+    app.get('/booking/:id', verifyJWT, async (req, res) => {
+      const id = req.params.id;
+      const query = {_id: ObjectId(id)};
+      const booking = await bookingCollection.findOne(query);
+      res.send(booking);
     })
 
     // Book a appointment
